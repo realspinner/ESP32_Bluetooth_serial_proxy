@@ -13,7 +13,15 @@ The firmware has two modes of operation:
 ## 2. Hardware Requirements
 
 *   An **ESP32 development board** with classic Bluetooth support (most standard ESP32 modules are suitable).
+*   The built-in LED on GPIO 2 acts as a status indicator for the firmware.
 *   The "Boot" button (connected to GPIO 0) is used to switch between Proxy and Command modes.
+
+### LED indicator states
+
+*   **Rapid flashing (after power-up):** The device is offering a short window to enter Command Mode. Press the Boot button while the LED is flashing quickly.
+*   **Solid on:** Command Mode is active and the device is waiting for commands over UART.
+*   **Off:** Proxy Mode is active and the device is idle.
+*   **Brief flickers while in Proxy Mode:** Data is being relayed between UART and Bluetooth.
 
 ## 3. UART (Serial Port) Settings
 
@@ -33,12 +41,12 @@ To set up the connection to your target Bluetooth device, you need to enter Comm
 
 1.  Connect the ESP32 to your computer via USB.
 2.  Open a serial terminal with the settings specified in section 3.
-3.  Press and hold the **"Boot" button** (GPIO 0) on the ESP32 board for about a second.
+3.  Wait until the built-in LED starts flashing rapidly right after boot and, while it is flashing, press the **"Boot" button** (GPIO 0) on the ESP32 board. Pressing the **"Boot" button** (GPIO 0) when ESP32 is connected to a remote BT device will put it into command mode as well.
 4.  The device will report the mode change in the serial terminal:
     ```
     %ESP32_BTP% CMD MODE: ENABLED
     ```
-    Now the device is ready to accept commands.
+    And the built-in LED become solid on. Now the device is ready to accept commands.
 
 ### Step 2: Scan for Devices (Optional but Recommended)
 

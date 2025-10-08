@@ -40,6 +40,16 @@ bool lastBtnState = false; // Предыдущее состояние кнопк
 bool commandMode = false;  // Флаг командного режима
 bool connectionGood = false; // Флаг успешного соединения
 
+// Кнопка BOOT
+int BOOT_BTN = 0;
+
+// Индикатор режима
+int LED_PIN = 2;
+
+// Максимальная длина PIN-кода
+constexpr size_t MAX_PIN_LENGTH = 16;
+
+
 /**
  * @struct BindRecord_t
  * @brief Структура для хранения данных о сопряжении с удаленным устройством.
@@ -47,11 +57,12 @@ bool connectionGood = false; // Флаг успешного соединения
 typedef struct {
     bool valid = false;       ///< Флаг, указывающий на валидность записи
     esp_bd_addr_t remoteAddr; ///< MAC-адрес удаленного устройства
-    char remotePin[9]{};      ///< PIN-код удаленного устройства
+    char remotePin[MAX_PIN_LENGTH + 1]{};      ///< PIN-код удаленного устройства
 } BindRecord_t;
 
+
 BTAddress addr = BTAddress(DEFAULT_REMOTE_ADDR);
-char pin[9] = {'0', '0', '0', '0', 0x00, 0x00, 0x00, 0x00, 0x00};
+char pin[sizeof(BindRecord_t::remotePin)] = {'0', '0', '0', '0', 0x00};
 const int channel = 1; // RFCOMM канал для SPP
 
 Preferences prefs;   // Объект для работы с энергонезависимой памятью
@@ -61,8 +72,8 @@ BindRecord_t bindRec{}; // Запись с данными для сопряже�
 esp_spp_sec_t sec_mask =
         ESP_SPP_SEC_ENCRYPT |
         ESP_SPP_SEC_AUTHENTICATE;
-// Роль устройства в SPP соединении (SLAVE)
-esp_spp_role_t role = ESP_SPP_ROLE_SLAVE;
+// Роль устройства в SPP соединении (MASTER)
+esp_spp_role_t role = ESP_SPP_ROLE_MASTER;
 
 constexpr size_t LINE_BUFFER_LENGTH = 64; // Длина буфера для команд
 char lineBuffer[LINE_BUFFER_LENGTH + 1]{}; // Буфер для команд из UART
@@ -77,6 +88,19 @@ static size_t btBufferLen{};
 static uint8_t uartBuffer[256]{};
 static size_t uartBufferLen{};
 
+
+/**
+ * @brief Включение индикатора
+ */
+inline void ledON() { digitalWrite(LED_PIN, HIGH); }
+
+
+/**
+ * @brief Выключение индикатора
+ */
+inline void ledOFF() { digitalWrite(LED_PIN, LOW); }
+
+
 /**
  * @brief Проверяет состояние кнопки для переключения в командный режим.
  *
@@ -85,7 +109,7 @@ static size_t uartBufferLen{};
  */
 void checkButton() {
     // Считываем текущее состояние кнопки (LOW, если нажата)
-    bool btnState = (digitalRead(0) == LOW);
+    bool btnState = (digitalRead(BOOT_BTN) == LOW);
     // Проверяем, изменилось ли состояние с последнего считывания
     if (btnState != lastBtnState) {
         // Если кнопка была нажата
@@ -99,6 +123,7 @@ void checkButton() {
         lastBtnState = btnState;
     }
 }
+
 
 /**
  * @brief Загружает данные о сопряжении из энергонезависимой памяти.
@@ -193,6 +218,7 @@ void saveBindRecord() {
     Serial.println(SYSPREFIX "DEBUG: Preferences saved");
 }
 
+
 /**
  * @brief Устанавливает данные о сопряжении по умолчанию.
  *
@@ -211,6 +237,7 @@ void defaultBindRecord() {
     Serial.println(SYSPREFIX "DEBUG: default preferences loaded");
 }
 
+
 /**
  * @brief Сообщает о текущем состоянии командного режима.
  *
@@ -221,6 +248,7 @@ void reportCommandMode() {
     Serial.println((commandMode) ? "ENABLED" : "DISABLED");
 }
 
+
 /**
  * @brief Начальная настройка устройства.
  *
@@ -230,7 +258,11 @@ void reportCommandMode() {
  */
 void setup() {
     // Настраиваем пин кнопки на ввод с подтяжкой к питанию
-    pinMode(0, INPUT_PULLUP);
+    pinMode(BOOT_BTN, INPUT_PULLUP);
+
+    // Светодиод
+    pinMode(LED_PIN, OUTPUT);
+    ledOFF();
 
     // Инициализируем последовательный порт
     Serial.begin(115200);
@@ -288,13 +320,16 @@ void setup() {
 
         // Даем пользователю шанс войти в командный режим
         Serial.println(SYSPREFIX "INFO: Press the \"boot\" button to enter command mode");
-        for (int i = 0; i < 100; i++) {
-            delay(10);
+        for (int i = 0; i < 10; i++) {
+            ledON();
+            delay(50);
+            ledOFF();
             checkButton();
             if (commandMode) {
                 // Если вошли в командный режим, выходим из setup для обработки команд в loop
                 return;
             }
+            delay(50);
         }
     }
 
@@ -304,6 +339,7 @@ void setup() {
         Serial.println(SYSPREFIX "STATE: CONNECTED");
     }
 }
+
 
 /**
  * @brief Выводит справку по доступным командам.
@@ -323,6 +359,7 @@ void printCmdHelp() {
     Serial.println(SYSPREFIX "HELP:   CLEAR - remove configuration");
 }
 
+
 /**
  * @brief Выводит информацию о текущей конфигурации.
  *
@@ -336,6 +373,7 @@ void printInfo() {
     Serial.print(SYSPREFIX "INFO: PIN ");
     Serial.println(bindRec.remotePin);
 }
+
 
 /**
  * @brief Выполняет асинхронное сканирование Bluetooth-устройств.
@@ -395,6 +433,7 @@ void asyncScan() {
     Serial.println(SYSPREFIX "INFO: Scan complete");
 }
 
+
 /**
  * @brief Сбрасывает буфер для ввода команд.
  *
@@ -404,6 +443,7 @@ void resetLine() {
     memset(lineBuffer, 0x00, sizeof(lineBuffer));
     linePos = 0;
 }
+
 
 /**
  * @brief Обрабатывает входящие символы из Serial в командном режиме.
@@ -433,6 +473,7 @@ void processInput(char c) {
     }
 }
 
+
 /**
  * @brief Проверяет корректность MAC-адреса.
  * @param arg Строка, содержащая MAC-адрес для проверки.
@@ -455,6 +496,7 @@ bool validateAddr(const char *arg) {
     // Сравниваем исходную и проверочную строки
     return checkStr == newAddr;
 }
+
 
 /**
  * @brief Устанавливает MAC-адрес удаленного устройства.
@@ -480,6 +522,7 @@ void setBindAddress(char const *arg) {
     // Помечаем запись как валидную
     bindRec.valid = true;
 }
+
 
 /**
  * @brief Устанавливает PIN-код удаленного устройства.
@@ -520,6 +563,7 @@ void setBindPin(char const *arg) {
     Serial.print(SYSPREFIX "INFO: New pin is ");
     Serial.println(bindRec.remotePin);
 }
+
 
 /**
  * @brief Разбирает и выполняет команду, введенную в Serial.
@@ -582,6 +626,7 @@ void parseCommand() {
     Serial.printf("ERROR: unknown command %s, type HELP for help", lineBuffer);
 }
 
+
 /**
  * @brief Основной цикл программы.
  *
@@ -596,6 +641,7 @@ void loop() {
 
     // Если мы не в командном режиме (режим прокси)
     if (!commandMode) {
+        ledOFF();
         // Проверяем состояние соединения
         if (!SerialBT.connected()) {
             // Если соединение было ранее установлено, сообщаем о потере
@@ -613,14 +659,18 @@ void loop() {
         // Перенаправляем данные из Bluetooth в Serial
         btBufferLen = 0;
         while (SerialBT.available()) {
+            ledON();
             btBuffer[btBufferLen] = SerialBT.read();
+            ledOFF();
             ++btBufferLen;
             // Если буфер полон, отправляем его в Serial
             if (btBufferLen >= sizeof(btBuffer)) {
                 Serial.write(btBuffer, btBufferLen);
                 btBufferLen = 0;
-            }
+            }        
+            
         }
+        
         // Отправляем остаток данных в буфере
         if (btBufferLen > 0) {
             Serial.write(btBuffer, btBufferLen);
@@ -633,15 +683,20 @@ void loop() {
             ++uartBufferLen;
             // Если буфер полон, отправляем его в Bluetooth
             if (uartBufferLen >= sizeof(uartBuffer)) {
-                SerialBT.write(uartBuffer, uartBufferLen);
+                ledON();
+                SerialBT.write(uartBuffer, uartBufferLen);                
                 uartBufferLen = 0;
+                ledOFF();
             }
         }
         // Отправляем остаток данных в буфере
         if (uartBufferLen > 0) {
+            ledON();
             SerialBT.write(uartBuffer, uartBufferLen);
+            ledOFF();
         }
     } else { // Если мы в командном режиме
+        ledON();
         // Считываем символы из Serial и передаем их на обработку команд
         while (Serial.available()) {
             char c = Serial.read();
